@@ -1,0 +1,310 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MERCHANT
+}
+
+enum GatewayHealth {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+}
+
+enum PaymentMethod {
+  CARD
+  UPI
+  BANK_TRANSFER
+  WALLET
+}
+
+enum TransactionStatus {
+  CREATED
+  PROCESSING
+  SUCCESS
+  FAILED
+  PENDING
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentScenario {
+  NORMAL
+  DECLINE
+  FAILOVER
+  TIMEOUT_SUCCESS
+  TIMEOUT_UNKNOWN
+  TIMEOUT_FAILOVER
+}
+
+enum AttemptStatus {
+  STARTED
+  SUCCESS
+  DECLINED
+  RETRYABLE_FAILURE
+  UNCERTAIN
+}
+
+enum WebhookType {
+  PAYMENT_SUCCESSFUL
+  PAYMENT_FAILED
+  PAYMENT_PENDING
+  REFUND_COMPLETED
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum ReconciliationStatus {
+  MATCHED
+  DISCREPANCIES
+  FAILED
+}
+
+model Merchant {
+  id             String                 @id @default(uuid()) @db.Uuid
+  name           String                 @db.VarChar(120)
+  routingWeights Json?
+  createdAt      DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime               @updatedAt @db.Timestamptz(3)
+  users          User[]
+  gateways       MerchantGateway[]
+  transactions   Transaction[]
+  settlements    SettlementRecord[]
+  reports        ReconciliationReport[]
+  auditLogs      AuditLog[]
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  merchantId   String?    @db.Uuid
+  email        String     @unique @db.VarChar(254)
+  passwordHash String
+  role         Role       @default(MERCHANT)
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+  merchant     Merchant?  @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  auditLogs    AuditLog[]
+
+  @@index([merchantId])
+}
+
+model Gateway {
+  id               String            @id @default(uuid()) @db.Uuid
+  code             String            @unique @db.VarChar(32)
+  name             String            @db.VarChar(100)
+  active           Boolean           @default(true)
+  health           GatewayHealth     @default(HEALTHY)
+  successRate      Decimal           @db.Decimal(5, 4)
+  responseTimeMs   Int
+  supportedMethods PaymentMethod[]
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+  merchants        MerchantGateway[]
+  webhookEvents    WebhookEvent[]
+}
+
+model MerchantGateway {
+  merchantId       String               @db.Uuid
+  gatewayId        String               @db.Uuid
+  active           Boolean              @default(true)
+  priority         Int                  @default(0)
+  createdAt        DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @db.Timestamptz(3)
+  merchant         Merchant             @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  gateway          Gateway              @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+  transactions     Transaction[]
+  attempts         TransactionAttempt[]
+  routingDecisions RoutingDecision[]
+  settlements      SettlementRecord[]
+
+  @@id([merchantId, gatewayId])
+  @@index([gatewayId])
+}
+
+model Transaction {
+  id                String               @id @default(uuid()) @db.Uuid
+  merchantId        String               @db.Uuid
+  gatewayId         String?              @db.Uuid
+  merchantReference String?              @db.VarChar(120)
+  amountMinor       BigInt
+  currency          String               @db.Char(3)
+  paymentMethod     PaymentMethod
+  status            TransactionStatus    @default(CREATED)
+  scenario          PaymentScenario      @default(NORMAL)
+  nextActionAt      DateTime?            @db.Timestamptz(3)
+  failureReason     String?
+  gatewayReference  String?              @db.VarChar(128)
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+  merchant          Merchant             @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  merchantGateway   MerchantGateway?     @relation(fields: [merchantId, gatewayId], references: [merchantId, gatewayId], onDelete: Restrict)
+  attempts          TransactionAttempt[]
+  routingDecisions  RoutingDecision[]
+  webhookEvents     WebhookEvent[]
+  idempotencyRecord IdempotencyRecord?
+  refunds           Refund[]
+  auditLogs         AuditLog[]
+
+  @@unique([merchantId, id])
+  @@index([merchantId, createdAt, id])
+  @@index([merchantId, status, createdAt])
+  @@index([merchantId, gatewayId, createdAt])
+  @@index([nextActionAt])
+}
+
+model TransactionAttempt {
+  id                String          @id @default(uuid()) @db.Uuid
+  merchantId        String          @db.Uuid
+  transactionId     String          @db.Uuid
+  gatewayId         String          @db.Uuid
+  sequence          Int
+  status            AttemptStatus   @default(STARTED)
+  verificationCount Int             @default(0)
+  responseTimeMs    Int?
+  gatewayReference  String?         @db.VarChar(128)
+  failureReason     String?
+  startedAt         DateTime        @default(now()) @db.Timestamptz(3)
+  completedAt       DateTime?       @db.Timestamptz(3)
+  transaction       Transaction     @relation(fields: [merchantId, transactionId], references: [merchantId, id], onDelete: Restrict)
+  merchantGateway   MerchantGateway @relation(fields: [merchantId, gatewayId], references: [merchantId, gatewayId], onDelete: Restrict)
+
+  @@unique([merchantId, transactionId, sequence])
+  @@unique([gatewayId, gatewayReference])
+  @@index([merchantId, gatewayId, startedAt])
+}
+
+model RoutingDecision {
+  id                String           @id @default(uuid()) @db.Uuid
+  merchantId        String           @db.Uuid
+  transactionId     String           @db.Uuid
+  selectedGatewayId String?          @db.Uuid
+  strategy          String           @db.VarChar(32)
+  candidates        Json
+  reason            String
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  transaction       Transaction      @relation(fields: [merchantId, transactionId], references: [merchantId, id], onDelete: Restrict)
+  selectedGateway   MerchantGateway? @relation(fields: [merchantId, selectedGatewayId], references: [merchantId, gatewayId], onDelete: Restrict)
+
+  @@index([merchantId, transactionId, createdAt])
+  @@index([merchantId, createdAt])
+}
+
+model WebhookEvent {
+  id                 String        @id @default(uuid()) @db.Uuid
+  gatewayId          String        @db.Uuid
+  eventId            String        @db.VarChar(128)
+  merchantId         String?       @db.Uuid
+  transactionId      String?       @db.Uuid
+  type               WebhookType
+  status             WebhookStatus @default(RECEIVED)
+  payload            Json
+  processingAttempts Int           @default(0)
+  deliveryCount      Int           @default(1)
+  receivedAt         DateTime      @default(now()) @db.Timestamptz(3)
+  processedAt        DateTime?     @db.Timestamptz(3)
+  gateway            Gateway       @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+  transaction        Transaction?  @relation(fields: [merchantId, transactionId], references: [merchantId, id], onDelete: Restrict)
+
+  @@unique([gatewayId, eventId])
+  @@index([merchantId, receivedAt])
+  @@index([merchantId, transactionId])
+}
+
+model IdempotencyRecord {
+  merchantId     String      @db.Uuid
+  key            String      @db.VarChar(128)
+  requestHash    String      @db.Char(64)
+  transactionId  String      @db.Uuid
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+  transaction    Transaction @relation(fields: [merchantId, transactionId], references: [merchantId, id], onDelete: Restrict)
+
+  @@id([merchantId, key])
+  @@unique([merchantId, transactionId])
+}
+
+model Refund {
+  id               String       @id @default(uuid()) @db.Uuid
+  merchantId       String       @db.Uuid
+  transactionId    String       @db.Uuid
+  amountMinor      BigInt
+  status           RefundStatus @default(PENDING)
+  gatewayReference String?      @db.VarChar(128)
+  createdAt        DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
+  transaction      Transaction  @relation(fields: [merchantId, transactionId], references: [merchantId, id], onDelete: Restrict)
+
+  @@index([merchantId, transactionId, createdAt])
+}
+
+model SettlementRecord {
+  id                 String            @id @default(uuid()) @db.Uuid
+  merchantId         String            @db.Uuid
+  gatewayId          String            @db.Uuid
+  gatewayReference   String            @db.VarChar(128)
+  amountMinor        BigInt
+  currency           String            @db.Char(3)
+  status             TransactionStatus
+  simulatorGenerated Boolean           @default(false)
+  settledAt          DateTime          @db.Timestamptz(3)
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  merchant           Merchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  merchantGateway    MerchantGateway   @relation(fields: [merchantId, gatewayId], references: [merchantId, gatewayId], onDelete: Restrict)
+
+  @@index([merchantId, gatewayId, gatewayReference])
+  @@index([merchantId, settledAt])
+}
+
+model ReconciliationReport {
+  id          String               @id @default(uuid()) @db.Uuid
+  merchantId  String               @db.Uuid
+  periodStart DateTime             @db.Timestamptz(3)
+  periodEnd   DateTime             @db.Timestamptz(3)
+  checked     Int                  @default(0)
+  matched     Int                  @default(0)
+  mismatched  Int                  @default(0)
+  missing     Int                  @default(0)
+  duplicates  Int                  @default(0)
+  status      ReconciliationStatus
+  details     Json
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  merchant    Merchant             @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+
+  @@index([merchantId, createdAt])
+}
+
+model AuditLog {
+  id            String       @id @default(uuid()) @db.Uuid
+  merchantId    String?      @db.Uuid
+  actorId       String?      @db.Uuid
+  transactionId String?      @db.Uuid
+  action        String       @db.VarChar(64)
+  metadata      Json?
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  merchant      Merchant?    @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  actor         User?        @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  transaction   Transaction? @relation(fields: [merchantId, transactionId], references: [merchantId, id], onDelete: Restrict)
+
+  @@index([merchantId, createdAt])
+  @@index([merchantId, transactionId, createdAt])
+  @@index([actorId])
+}

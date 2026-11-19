@@ -1,0 +1,580 @@
+{
+  "info": {
+    "name": "PayFlow",
+    "description": "Simulated payment operations. Set the synthetic password variable, then register or log in. Clear paymentKey when submitting a new intended payment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:4000"
+    },
+    {
+      "key": "email",
+      "value": "merchant@example.test"
+    },
+    {
+      "key": "merchantName",
+      "value": "Example Merchant"
+    },
+    {
+      "key": "password",
+      "value": ""
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "paymentKey",
+      "value": ""
+    },
+    {
+      "key": "paymentId",
+      "value": ""
+    },
+    {
+      "key": "gatewayId",
+      "value": ""
+    },
+    {
+      "key": "gatewayCode",
+      "value": "gateway-a"
+    },
+    {
+      "key": "eventId",
+      "value": ""
+    },
+    {
+      "key": "reportId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/health",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": []
+          }
+        },
+        {
+          "name": "Register merchant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Session returned', () => pm.expect(pm.response.json().data.accessToken).to.be.a('string'));",
+                  "if (pm.response.code < 300) pm.collectionVariables.set('accessToken', pm.response.json().data.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantName\": \"{{merchantName}}\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Log in",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Session returned', () => pm.expect(pm.response.json().data.accessToken).to.be.a('string'));",
+                  "if (pm.response.code < 300) pm.collectionVariables.set('accessToken', pm.response.json().data.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Current identity",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/auth/me",
+            "header": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Create or replay payment",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('paymentKey')) pm.collectionVariables.set('paymentKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Payment accepted', () => pm.response.to.have.status(202));",
+                  "if (pm.response.code === 202) pm.collectionVariables.set('paymentId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/payments",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{paymentKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amountMinor\": \"12500\",\n  \"currency\": \"USD\",\n  \"paymentMethod\": \"CARD\",\n  \"merchantReference\": \"example-order\",\n  \"scenario\": \"FAILOVER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List payments",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/payments?page=1&limit=20",
+            "header": []
+          }
+        },
+        {
+          "name": "Payment details",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/payments/{{paymentId}}",
+            "header": []
+          }
+        },
+        {
+          "name": "Cancel payment",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/payments/{{paymentId}}/cancel",
+            "header": []
+          }
+        },
+        {
+          "name": "Refund payment",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/payments/{{paymentId}}/refund",
+            "header": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gateways and routing",
+      "item": [
+        {
+          "name": "List gateways",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) pm.collectionVariables.set('gatewayId', pm.response.json().data[0]?.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/gateways",
+            "header": []
+          }
+        },
+        {
+          "name": "Gateway health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/gateways/{{gatewayId}}/health",
+            "header": []
+          }
+        },
+        {
+          "name": "Update merchant gateway",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/gateways/{{gatewayId}}",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"priority\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Routing configuration",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/routing/config",
+            "header": []
+          }
+        },
+        {
+          "name": "Update weights",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/routing/config",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"availability\": 25,\n  \"successRate\": 45,\n  \"responseTime\": 20,\n  \"priority\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Preview routing",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/routing/preview",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amountMinor\": \"1000\",\n  \"paymentMethod\": \"CARD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Routing decisions",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/routing/decisions",
+            "header": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "description": "Use the backend webhook:send command for signed deliveries. No signing secret is stored in this collection.",
+      "item": [
+        {
+          "name": "Webhook log",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/webhooks",
+            "header": []
+          }
+        },
+        {
+          "name": "Retry event processing",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/webhooks/{{eventId}}/retry",
+            "header": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconciliation",
+      "item": [
+        {
+          "name": "Import simulated settlement",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/reconciliation/settlements",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gateway\": \"{{gatewayCode}}\",\n  \"gatewayReference\": \"synthetic-external-reference\",\n  \"amountMinor\": \"12500\",\n  \"currency\": \"USD\",\n  \"status\": \"SUCCESS\",\n  \"settledAt\": \"{{$isoTimestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Run reconciliation",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('periodStart', new Date(Date.now() - 7 * 86400000).toISOString());",
+                  "pm.variables.set('periodEnd', new Date().toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) pm.collectionVariables.set('reportId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/reconciliation/run",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from\": \"{{periodStart}}\",\n  \"to\": \"{{periodEnd}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List reports",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/reconciliation/reports",
+            "header": []
+          }
+        },
+        {
+          "name": "Report details",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/reconciliation/reports/{{reportId}}",
+            "header": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics and settings",
+      "item": [
+        {
+          "name": "Overview totals",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/analytics/overview",
+            "header": []
+          }
+        },
+        {
+          "name": "Gateway performance",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/analytics/gateways",
+            "header": []
+          }
+        },
+        {
+          "name": "Daily activity",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/analytics/transactions",
+            "header": []
+          }
+        },
+        {
+          "name": "Workspace profile",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/settings",
+            "header": []
+          }
+        },
+        {
+          "name": "Rename workspace",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/settings",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Example Merchant\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Administrator",
+      "description": "Log in with the provisioned administrator account to use these routes.",
+      "item": [
+        {
+          "name": "Platform overview",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/admin/analytics/overview",
+            "header": []
+          }
+        },
+        {
+          "name": "Platform gateway analytics",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/admin/analytics/gateways",
+            "header": []
+          }
+        },
+        {
+          "name": "Platform activity",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/admin/analytics/transactions",
+            "header": []
+          }
+        },
+        {
+          "name": "Set global gateway health",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/admin/gateways/{{gatewayCode}}",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"health\": \"HEALTHY\",\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
